@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<model type="com.apple.IDECoreDataModeler.DataModel" documentVersion="1.0" lastSavedToolsVersion="1" systemVersion="11A491" minimumToolsVersion="Automatic" sourceLanguage="Swift" usedWithCloudKit="false" userDefinedModelVersionIdentifier="">
+    <entity name="DayEntry" representedClassName="DayEntry" syncable="YES" codeGenerationType="none">
+        <attribute name="activities" optional="YES" attributeType="String"/>
+        <attribute name="createdAt" optional="NO" attributeType="Date" usesScalarValueType="NO"/>
+        <attribute name="date" optional="NO" attributeType="Date" usesScalarValueType="NO"/>
+        <attribute name="diaryText" optional="YES" attributeType="String"/>
+        <attribute name="mood" optional="NO" attributeType="String"/>
+        <attribute name="photoData" optional="YES" attributeType="Binary" allowsExternalBinaryDataStorage="YES"/>
+        <attribute name="qualityScore" optional="NO" attributeType="Integer 16" defaultValueString="5" usesScalarValueType="YES"/>
+    </entity>
+    <entity name="UserProfile" representedClassName="UserProfile" syncable="YES" codeGenerationType="none">
+        <attribute name="birthDate" optional="NO" attributeType="Date" usesScalarValueType="NO"/>
+        <attribute name="country" optional="NO" attributeType="String"/>
+        <attribute name="createdAt" optional="NO" attributeType="Date" usesScalarValueType="NO"/>
+        <attribute name="gender" optional="NO" attributeType="String"/>
+        <attribute name="hasChronicCondition" optional="NO" attributeType="Boolean" defaultValueString="NO" usesScalarValueType="YES"/>
+        <attribute name="isSmoker" optional="NO" attributeType="Boolean" defaultValueString="NO" usesScalarValueType="YES"/>
+    </entity>
+    <elements>
+        <element name="DayEntry" positionX="-63" positionY="-18" width="128" height="104"/>
+        <element name="UserProfile" positionX="207" positionY="-18" width="128" height="104"/>
+    </elements>
+</model>

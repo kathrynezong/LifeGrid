@@ -141,11 +141,12 @@ private struct LifeGridView: View {
     ) private var entries: FetchedResults<DayEntry>
 
     @State private var selectedDay: SelectedDay?
+    @State private var displayedMonth = LifeGridView.startOfCurrentMonth()
 
     private let monthColumns = Array(repeating: GridItem(.flexible(minimum: 28, maximum: 52), spacing: 6), count: 7)
 
-    private var lifeExpectancy: Int {
-        LifeExpectancyCalculator.estimateYears(
+    private var expectancyRange: LifeExpectancyCalculator.ExpectancyRange {
+        LifeExpectancyCalculator.estimateRange(
             birthDate: profile.birthDate ?? Date(),
             country: profile.country ?? "United States",
             gender: profile.gender ?? "Other",
@@ -162,16 +163,28 @@ private struct LifeGridView: View {
         max(Calendar.current.dateComponents([.day], from: profile.birthDate ?? Date(), to: Date()).day ?? 0, 0)
     }
 
-    private var estimatedTotalDays: Int {
-        max(lifeExpectancy * 365, daysLived + 1)
+    private var averageTotalDays: Int {
+        max(expectancyRange.averageYears * 365, daysLived + 1)
     }
 
-    private var daysLeft: Int {
-        max(estimatedTotalDays - daysLived, 0)
+    private var lowerTotalDays: Int {
+        max(expectancyRange.lowerYears * 365, daysLived + 1)
+    }
+
+    private var upperTotalDays: Int {
+        max(expectancyRange.upperYears * 365, averageTotalDays + 1)
+    }
+
+    private var averageDaysLeft: Int {
+        max(averageTotalDays - daysLived, 0)
+    }
+
+    private var daysLeftRange: ClosedRange<Int> {
+        max(lowerTotalDays - daysLived, 0)...max(upperTotalDays - daysLived, 0)
     }
 
     private var livedRatio: Double {
-        min(max(Double(daysLived) / Double(estimatedTotalDays), 0), 1)
+        min(max(Double(daysLived) / Double(upperTotalDays), 0), 1)
     }
 
     private var totalLoggedDays: Int {
@@ -188,7 +201,10 @@ private struct LifeGridView: View {
                 VStack(alignment: .leading, spacing: 16) {
                     HStack(spacing: 12) {
                         StatCard(title: "Age", value: "\(age)")
-                        StatCard(title: "Est. Life", value: "\(lifeExpectancy)")
+                        StatCard(
+                            title: "Estimate Life Expectancy",
+                            value: "\(expectancyRange.lowerYears)-\(expectancyRange.upperYears)"
+                        )
                         StatCard(title: "Logged", value: "\(totalLoggedDays)")
                     }
 
@@ -197,47 +213,162 @@ private struct LifeGridView: View {
                             Text("Lived: \(daysLived) days")
                                 .font(.subheadline)
                             Spacer()
-                            Text("Left: \(daysLeft) days")
+                            Text("Left: \(daysLeftRange.lowerBound)-\(daysLeftRange.upperBound) days (avg \(averageDaysLeft))")
                                 .font(.subheadline)
                         }
 
                         GeometryReader { geometry in
                             let livedWidth = geometry.size.width * livedRatio
-                            HStack(spacing: 0) {
-                                Rectangle()
-                                    .fill(Color.blue)
-                                    .frame(width: livedWidth)
-                                Rectangle()
-                                    .fill(Color.green.opacity(0.35))
+                            let remainingWidth = max(geometry.size.width - livedWidth, 0)
+                            let sigmaDays = max(expectancyRange.stdDevYears * 365, 1)
+                            let averageRemaining = Double(averageTotalDays - daysLived)
+                            let remainingHorizon = max(Double(upperTotalDays - daysLived), 1)
+                            let mean = min(max(averageRemaining / remainingHorizon, 0), 1)
+                            let oneLow = min(max((averageRemaining - sigmaDays) / remainingHorizon, 0), 1)
+                            let oneHigh = min(max((averageRemaining + sigmaDays) / remainingHorizon, 0), 1)
+                            let twoLow = min(max((averageRemaining - (2 * sigmaDays)) / remainingHorizon, 0), 1)
+                            let twoHigh = min(max((averageRemaining + (2 * sigmaDays)) / remainingHorizon, 0), 1)
+                            let markerLabelWidth: CGFloat = 80
+                            let milestones: [(position: Double, label: String)] = [
+                                (min(max(Double(daysLived) / Double(upperTotalDays), 0), 1), "Now \(age)y"),
+                                (min(max(Double(lowerTotalDays) / Double(upperTotalDays), 0), 1), "-2σ \(expectancyRange.lowerYears)y"),
+                                (min(max(Double(averageTotalDays) / Double(upperTotalDays), 0), 1), "Avg \(expectancyRange.averageYears)y"),
+                                (min(max(Double(upperTotalDays) / Double(upperTotalDays), 0), 1), "+2σ \(expectancyRange.upperYears)y")
+                            ]
+
+                            ZStack(alignment: .topLeading) {
+                                HStack(spacing: 0) {
+                                    Rectangle()
+                                        .fill(Color.blue)
+                                        .frame(width: livedWidth)
+                                    Rectangle()
+                                        .fill(
+                                            LinearGradient(
+                                                stops: [
+                                                    .init(color: Color.green.opacity(0.12), location: 0),
+                                                    .init(color: Color.green.opacity(0.28), location: twoLow),
+                                                    .init(color: Color.green.opacity(0.52), location: oneLow),
+                                                    .init(color: Color.green.opacity(1.0), location: mean),
+                                                    .init(color: Color.green.opacity(0.52), location: oneHigh),
+                                                    .init(color: Color.green.opacity(0.28), location: twoHigh),
+                                                    .init(color: Color.green.opacity(0.12), location: 1)
+                                                ],
+                                                startPoint: .leading,
+                                                endPoint: .trailing
+                                            )
+                                        )
+                                        .frame(width: remainingWidth)
+                                }
+                                .clipShape(RoundedRectangle(cornerRadius: 8))
+                                .overlay(
+                                    RoundedRectangle(cornerRadius: 8)
+                                        .stroke(Color.secondary.opacity(0.25), lineWidth: 0.75)
+                                )
+
+                                ForEach(Array(milestones.enumerated()), id: \.offset) { _, marker in
+                                    let rawX = CGFloat(marker.position) * geometry.size.width
+                                    let clampedX = min(max(rawX, markerLabelWidth / 2), geometry.size.width - markerLabelWidth / 2)
+                                    ZStack(alignment: .topLeading) {
+                                        Rectangle()
+                                            .fill(Color.primary.opacity(0.7))
+                                            .frame(width: 1, height: 16)
+                                            .position(x: rawX, y: 8)
+
+                                        Text(marker.label)
+                                            .font(.caption2)
+                                            .foregroundStyle(.secondary)
+                                            .frame(width: markerLabelWidth, alignment: .center)
+                                            .position(x: clampedX, y: 25)
+                                    }
+                                }
                             }
-                            .clipShape(RoundedRectangle(cornerRadius: 8))
-                            .overlay(
-                                RoundedRectangle(cornerRadius: 8)
-                                    .stroke(Color.secondary.opacity(0.25), lineWidth: 0.75)
-                            )
                         }
-                        .frame(height: 16)
+                        .frame(height: 42)
                     }
 
-                    VStack(alignment: .leading, spacing: 8) {
-                        Text("Current Month")
-                            .font(.headline)
-                        monthSection(for: currentMonthStart)
-                    }
-
-                    VStack(alignment: .leading, spacing: 16) {
-                        ForEach(pastMonths(), id: \.self) { month in
-                            monthSection(for: month)
+                    VStack(alignment: .leading, spacing: 12) {
+                        HStack {
+                            Text(monthTitle(for: displayedMonth))
+                                .font(.headline)
+                            Spacer()
+                            Button("Today") {
+                                withAnimation(.easeInOut(duration: 0.2)) {
+                                    displayedMonth = currentMonthStart
+                                }
+                            }
+                            .font(.subheadline.weight(.semibold))
+                            .buttonStyle(.borderedProminent)
+                            .disabled(isSameMonth(displayedMonth, currentMonthStart))
                         }
+
+                        HStack(spacing: 10) {
+                            Button {
+                                shiftMonth(by: -1)
+                            } label: {
+                                Label("Previous", systemImage: "chevron.left")
+                                    .labelStyle(.iconOnly)
+                            }
+                            .buttonStyle(.bordered)
+
+                            Button {
+                                shiftMonth(by: 1)
+                            } label: {
+                                Label("Next", systemImage: "chevron.right")
+                                    .labelStyle(.iconOnly)
+                            }
+                            .buttonStyle(.bordered)
+                        }
+
+                        monthSection(for: displayedMonth)
                     }
 
-                    Text("Scroll through months and tap any day to open details.")
+                    Text("Use arrows, then tap any day to open details.")
                         .font(.footnote)
                         .foregroundStyle(.secondary)
                 }
                 .padding()
             }
-            .navigationTitle("Life Grid")
+            .navigationTitle("")
+            #if os(iOS)
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .topBarLeading) {
+                    Text("Life Grid")
+                        .font(.title3.weight(.bold))
+                        .foregroundStyle(
+                            LinearGradient(
+                                colors: [Color.green, Color.mint],
+                                startPoint: .leading,
+                                endPoint: .trailing
+                            )
+                        )
+                }
+                ToolbarItem(placement: .principal) {
+                    Text("Make Every Day Meaningful!")
+                        .font(.caption.weight(.medium))
+                        .foregroundStyle(.secondary)
+                }
+            }
+            #else
+            .toolbar {
+                ToolbarItem(placement: .principal) {
+                    HStack(spacing: 10) {
+                        Text("Life Grid")
+                            .font(.title3.weight(.bold))
+                            .foregroundStyle(
+                                LinearGradient(
+                                    colors: [Color.green, Color.mint],
+                                    startPoint: .leading,
+                                    endPoint: .trailing
+                                )
+                            )
+                        Text("Make Every Day Meaningful!")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+            }
+            #endif
             #if os(iOS)
             .fullScreenCover(item: $selectedDay) { day in
                 DayEntryEditorView(
@@ -259,17 +390,26 @@ private struct LifeGridView: View {
         }
     }
 
-    private var currentMonthStart: Date {
+    private static func startOfCurrentMonth() -> Date {
         let calendar = Calendar.current
         let today = Date()
         return calendar.date(from: calendar.dateComponents([.year, .month], from: today)) ?? today
     }
 
-    private func pastMonths() -> [Date] {
-        let calendar = Calendar.current
-        return (1..<12).compactMap { offset in
-            calendar.date(byAdding: .month, value: -offset, to: currentMonthStart)
+    private var currentMonthStart: Date {
+        Self.startOfCurrentMonth()
+    }
+
+    private func shiftMonth(by value: Int) {
+        guard let newMonth = Calendar.current.date(byAdding: .month, value: value, to: displayedMonth) else { return }
+        withAnimation(.easeInOut(duration: 0.2)) {
+            displayedMonth = newMonth
         }
+    }
+
+    private func isSameMonth(_ lhs: Date, _ rhs: Date) -> Bool {
+        Calendar.current.isDate(lhs, equalTo: rhs, toGranularity: .month)
+            && Calendar.current.isDate(lhs, equalTo: rhs, toGranularity: .year)
     }
 
     private func entryForDay(_ day: Date) -> DayEntry? {
@@ -301,9 +441,6 @@ private struct LifeGridView: View {
 
     private func monthSection(for month: Date) -> some View {
         VStack(alignment: .leading, spacing: 10) {
-            Text(monthTitle(for: month))
-                .font(.headline)
-
             LazyVGrid(columns: monthColumns, spacing: 8) {
                 ForEach(weekdaySymbols(), id: \.self) { weekday in
                     Text(weekday)
@@ -317,7 +454,7 @@ private struct LifeGridView: View {
                         let entry = entryForDay(day)
                         RoundedRectangle(cornerRadius: 8)
                             .fill(color(for: entry))
-                            .frame(height: 34)
+                            .frame(height: 38)
                             .overlay(
                                 Text(day.formatted(.dateTime.day()))
                                     .font(.caption)
@@ -339,7 +476,7 @@ private struct LifeGridView: View {
                             }
                     } else {
                         Color.clear
-                            .frame(height: 34)
+                            .frame(height: 38)
                     }
                 }
             }
@@ -388,150 +525,19 @@ private struct LifeGridView: View {
 }
 
 private struct TodayView: View {
-    @Environment(\.managedObjectContext) private var viewContext
-
     @FetchRequest(
         sortDescriptors: [NSSortDescriptor(keyPath: \DayEntry.date, ascending: false)],
         animation: .default
     ) private var entries: FetchedResults<DayEntry>
 
-    @State private var qualityScore = 7.0
-    @State private var mood = "Good"
-    @State private var activities = ""
-    @State private var diaryText = ""
-    @State private var selectedPhotoItems: [PhotosPickerItem] = []
-    @State private var photoDatas: [Data] = []
-    @State private var statusMessage = ""
-    #if os(iOS)
-    @StateObject private var diaryVoiceEntry = VoiceEntryController()
-    #endif
-
-    private let moods = ["Great", "Good", "Okay", "Low", "Exhausted"]
-
     var body: some View {
-        NavigationStack {
-            ScrollView {
-                VStack(alignment: .leading, spacing: 16) {
-                    GroupBox("Daily Score") {
-                        VStack(alignment: .leading, spacing: 12) {
-                            Text("Quality: \(Int(qualityScore))/10")
-                            Slider(value: $qualityScore, in: 1...10, step: 1)
-
-                            Picker("Mood", selection: $mood) {
-                                ForEach(moods, id: \.self) { value in
-                                    Text(value).tag(value)
-                                }
-                            }
-                        }
-                    }
-
-                    GroupBox("Tags & Activities") {
-                        TagOrganizerView(activities: $activities)
-                    }
-
-                    GroupBox("Diary") {
-                        VStack(alignment: .leading, spacing: 10) {
-                            #if os(iOS)
-                            HStack(spacing: 10) {
-                                Button {
-                                    diaryVoiceEntry.toggle(for: diaryText) { updatedText in
-                                        diaryText = updatedText
-                                    }
-                                } label: {
-                                    Label(
-                                        diaryVoiceEntry.isRecording ? "Stop Voice Entry" : "Voice Entry",
-                                        systemImage: diaryVoiceEntry.isRecording ? "stop.circle.fill" : "mic.fill"
-                                    )
-                                }
-                                .buttonStyle(.bordered)
-
-                                if diaryVoiceEntry.isRecording {
-                                    Text("Listening...")
-                                        .font(.caption)
-                                        .foregroundStyle(.secondary)
-                                }
-                            }
-
-                            if let error = diaryVoiceEntry.errorMessage {
-                                Text(error)
-                                    .font(.caption)
-                                    .foregroundStyle(.red)
-                            }
-                            #endif
-
-                            TextEditor(text: $diaryText)
-                                .frame(minHeight: 120)
-                        }
-                    }
-
-                    GroupBox("Photo") {
-                        VStack(alignment: .leading, spacing: 10) {
-                            PhotosPicker(selection: $selectedPhotoItems, maxSelectionCount: 8, matching: .images) {
-                                Label("Select Photos", systemImage: "photo.on.rectangle.angled")
-                            }
-
-                            if photoDatas.isEmpty {
-                                Text("No photos selected.")
-                                    .font(.footnote)
-                                    .foregroundStyle(.secondary)
-                            } else {
-                                ScrollView(.horizontal, showsIndicators: false) {
-                                    HStack(spacing: 10) {
-                                        ForEach(Array(photoDatas.enumerated()), id: \.offset) { index, data in
-                                            ZStack(alignment: .topTrailing) {
-                                                if let image = platformSwiftUIImage(from: data) {
-                                                    image
-                                                        .resizable()
-                                                        .scaledToFill()
-                                                        .frame(width: 96, height: 96)
-                                                        .clipShape(RoundedRectangle(cornerRadius: 10))
-                                                }
-
-                                                Button {
-                                                    photoDatas.remove(at: index)
-                                                } label: {
-                                                    Image(systemName: "xmark.circle.fill")
-                                                        .foregroundStyle(.white, .black.opacity(0.7))
-                                                }
-                                                .offset(x: 4, y: -4)
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-
-                    Button("Save Today") {
-                        saveTodayEntry()
-                    }
-                    .buttonStyle(.borderedProminent)
-                    .frame(maxWidth: .infinity, alignment: .center)
-
-                    if !statusMessage.isEmpty {
-                        Text(statusMessage)
-                            .foregroundStyle(.secondary)
-                    }
-                }
-                .padding()
-            }
-            .navigationTitle("Today")
-            .onAppear(perform: loadTodayIfAvailable)
-            .onDisappear {
-                #if os(iOS)
-                diaryVoiceEntry.stopRecording()
-                #endif
-            }
-            .task(id: selectedPhotoItems) {
-                guard !selectedPhotoItems.isEmpty else { return }
-                for item in selectedPhotoItems {
-                    if let data = try? await item.loadTransferable(type: Data.self), !photoDatas.contains(data) {
-                        photoDatas.append(data)
-                    }
-                }
-                selectedPhotoItems.removeAll()
-            }
-        }
+        DayEntryEditorView(
+            date: Date(),
+            existingEntry: todayEntry(),
+            onClose: {},
+            title: "Today",
+            showsCloseButton: false
+        )
     }
 
     private func todayEntry() -> DayEntry? {
@@ -541,33 +547,6 @@ private struct TodayView: View {
         }
     }
 
-    private func loadTodayIfAvailable() {
-        guard let entry = todayEntry() else { return }
-        qualityScore = Double(entry.qualityScore)
-        mood = canonicalMood(entry.mood)
-        activities = entry.activities ?? ""
-        diaryText = entry.diaryText ?? ""
-        photoDatas = decodePhotoArray(from: entry.photoData)
-    }
-
-    private func saveTodayEntry() {
-        let entry = todayEntry() ?? DayEntry(context: viewContext)
-        entry.date = Calendar.current.startOfDay(for: Date())
-        entry.qualityScore = Int16(qualityScore)
-        entry.mood = canonicalMood(mood)
-        entry.activities = normalizedTagCSV(activities)
-        entry.diaryText = diaryText
-        entry.photoData = encodePhotoArray(photoDatas)
-        entry.createdAt = Date()
-
-        do {
-            try viewContext.save()
-            statusMessage = "Saved."
-        } catch {
-            viewContext.rollback()
-            statusMessage = "Save failed."
-        }
-    }
 }
 
 private struct AnalyticsView: View {
@@ -617,6 +596,8 @@ private struct AnalyticsView: View {
             let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
             guard !query.isEmpty else { return true }
             let haystack = [
+                entry.morningPlan ?? "",
+                entry.eveningReflection ?? "",
                 entry.diaryText ?? "",
                 entry.activities ?? "",
                 entry.mood ?? ""
@@ -798,8 +779,15 @@ private struct AnalyticsView: View {
                     .foregroundStyle(.secondary)
             }
 
-            if let diary = entry.diaryText, !diary.isEmpty {
-                Text(diary)
+            if let morningPlan = entry.morningPlan, !morningPlan.isEmpty {
+                Text("Plan: \(morningPlan)")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+            }
+
+            if let reflection = entry.eveningReflection ?? entry.diaryText, !reflection.isEmpty {
+                Text("Reflection: \(reflection)")
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .lineLimit(2)
@@ -835,14 +823,16 @@ private struct SettingsView: View {
     @AppStorage("morningMinute") private var morningMinute = 0
     @AppStorage("eveningHour") private var eveningHour = 20
     @AppStorage("eveningMinute") private var eveningMinute = 0
+    @AppStorage("geminiApiKey") private var geminiAPIKey = ""
+    @AppStorage("geminiModel") private var geminiModel = "gemini-2.5-flash"
 
     @State private var showDeleteAlert = false
     @State private var showReminderResultAlert = false
     @State private var reminderResultTitle = ""
     @State private var reminderResultMessage = ""
 
-    private var lifeExpectancy: Int {
-        LifeExpectancyCalculator.estimateYears(
+    private var lifeExpectancyRange: LifeExpectancyCalculator.ExpectancyRange {
+        LifeExpectancyCalculator.estimateRange(
             birthDate: profile.birthDate ?? Date(),
             country: profile.country ?? "United States",
             gender: profile.gender ?? "Other",
@@ -857,7 +847,10 @@ private struct SettingsView: View {
                 Section("Profile") {
                     row("Country", profile.country ?? "-")
                     row("Gender", profile.gender ?? "-")
-                    row("Estimated Life Expectancy", "\(lifeExpectancy) years")
+                    row(
+                        "Estimated Life Expectancy",
+                        "\(lifeExpectancyRange.lowerYears)-\(lifeExpectancyRange.upperYears) years (avg \(lifeExpectancyRange.averageYears))"
+                    )
                 }
 
                 Section("Notifications") {
@@ -897,6 +890,16 @@ private struct SettingsView: View {
                             }
                         }
                     }
+                }
+
+                Section("AI Reflection Guide") {
+                    SecureField("Gemini API Key", text: $geminiAPIKey)
+
+                    TextField("Model", text: $geminiModel)
+
+                    Text("Used by Day Details > Reflection > Guide Reflection. If empty, GOOGLE_API_KEY is used.")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
                 }
 
                 Section("Data") {
@@ -976,15 +979,29 @@ private struct DayEntryEditorView: View {
     let date: Date
     let existingEntry: DayEntry?
     let onClose: () -> Void
+    let title: String
+    let showsCloseButton: Bool
+
+    @AppStorage("geminiApiKey") private var geminiAPIKey = ""
+    @AppStorage("geminiModel") private var geminiModel = "gemini-2.5-flash"
 
     @State private var qualityScore = 5.0
     @State private var mood = "Good"
     @State private var activities = ""
-    @State private var diaryText = ""
+    @State private var morningPlan = ""
+    @State private var eveningReflection = ""
+    @State private var selectedEditorSection: DayEditorSection = .planning
+    @State private var reflectionGuide = ""
+    @State private var reflectionGuideError: String?
+    @State private var isGeneratingReflectionGuide = false
     @State private var selectedPhotoItems: [PhotosPickerItem] = []
     @State private var photoDatas: [Data] = []
     #if os(iOS)
-    @StateObject private var diaryVoiceEntry = VoiceEntryController()
+    @StateObject private var morningVoiceEntry = VoiceEntryController()
+    @StateObject private var eveningVoiceEntry = VoiceEntryController()
+    @State private var isPolishingEveningReflection = false
+    @State private var eveningReflectionPolishError: String?
+    @State private var shouldPolishEveningReflectionOnStop = false
     #endif
 
     private let moods = ["Great", "Good", "Okay", "Low", "Exhausted"]
@@ -1031,51 +1048,145 @@ private struct DayEntryEditorView: View {
                             .frame(maxWidth: .infinity, alignment: .leading)
                     }
 
-                    GroupBox("Details") {
-                        VStack(alignment: .leading, spacing: 12) {
-                            VStack(alignment: .leading) {
-                                Text("Quality: \(Int(qualityScore))/10")
-                                Slider(value: $qualityScore, in: 1...10, step: 1)
-                            }
+                    Picker("Section", selection: $selectedEditorSection) {
+                        ForEach(DayEditorSection.allCases) { section in
+                            Text(section.title).tag(section)
+                        }
+                    }
+                    .pickerStyle(.segmented)
 
-                            Picker("Mood", selection: $mood) {
-                                ForEach(moods, id: \.self) { value in
-                                    Text(value).tag(value)
-                                }
-                            }
-
-                            TagOrganizerView(activities: $activities)
-
-                            #if os(iOS)
-                            HStack(spacing: 10) {
-                                Button {
-                                    diaryVoiceEntry.toggle(for: diaryText) { updatedText in
-                                        diaryText = updatedText
+                    if selectedEditorSection == .planning {
+                        GroupBox("Morning Planning") {
+                            VStack(alignment: .leading, spacing: 12) {
+                                #if os(iOS)
+                                HStack(spacing: 10) {
+                                    Button {
+                                        morningVoiceEntry.toggle(for: morningPlan) { updatedText in
+                                            morningPlan = updatedText
+                                        }
+                                    } label: {
+                                        Label(
+                                            morningVoiceEntry.isRecording ? "Stop Voice Entry" : "Voice Entry",
+                                            systemImage: morningVoiceEntry.isRecording ? "stop.circle.fill" : "mic.fill"
+                                        )
                                     }
-                                } label: {
-                                    Label(
-                                        diaryVoiceEntry.isRecording ? "Stop Voice Entry" : "Voice Entry",
-                                        systemImage: diaryVoiceEntry.isRecording ? "stop.circle.fill" : "mic.fill"
-                                    )
-                                }
-                                .buttonStyle(.bordered)
+                                    .buttonStyle(.bordered)
 
-                                if diaryVoiceEntry.isRecording {
-                                    Text("Listening...")
+                                    if morningVoiceEntry.isRecording {
+                                        Text("Listening...")
+                                            .font(.caption)
+                                            .foregroundStyle(.secondary)
+                                    }
+                                }
+
+                                if let error = morningVoiceEntry.errorMessage {
+                                    Text(error)
                                         .font(.caption)
-                                        .foregroundStyle(.secondary)
+                                        .foregroundStyle(.red)
                                 }
-                            }
+                                #endif
 
-                            if let error = diaryVoiceEntry.errorMessage {
-                                Text(error)
-                                    .font(.caption)
-                                    .foregroundStyle(.red)
+                                TextEditor(text: $morningPlan)
+                                    .frame(minHeight: 160)
                             }
-                            #endif
+                        }
+                    }
 
-                            TextEditor(text: $diaryText)
-                                .frame(minHeight: 160)
+                    if selectedEditorSection == .reflection {
+                        GroupBox("Evening Reflection") {
+                            VStack(alignment: .leading, spacing: 12) {
+                                VStack(alignment: .leading) {
+                                    Text("Quality: \(Int(qualityScore))/10")
+                                    Slider(value: $qualityScore, in: 1...10, step: 1)
+                                }
+
+                                Picker("Mood", selection: $mood) {
+                                    ForEach(moods, id: \.self) { value in
+                                        Text(value).tag(value)
+                                    }
+                                }
+
+                                TagOrganizerView(activities: $activities)
+
+                                HStack(spacing: 10) {
+                                    Button {
+                                        Task {
+                                            await generateReflectionGuide()
+                                        }
+                                    } label: {
+                                        if isGeneratingReflectionGuide {
+                                            ProgressView()
+                                        } else {
+                                            Label("AI Guided Self-reflection", systemImage: "sparkles")
+                                        }
+                                    }
+                                    .buttonStyle(.borderedProminent)
+                                    .disabled(isGeneratingReflectionGuide)
+
+                                    if !reflectionGuide.isEmpty {
+                                        Button("Insert into Reflection") {
+                                            insertReflectionGuide()
+                                        }
+                                        .buttonStyle(.bordered)
+                                    }
+                                }
+
+                                if let reflectionGuideError {
+                                    Text(reflectionGuideError)
+                                        .font(.caption)
+                                        .foregroundStyle(.red)
+                                }
+
+                                if !reflectionGuide.isEmpty {
+                                    Text(reflectionGuide)
+                                        .font(.footnote)
+                                        .padding(10)
+                                        .background(Color.secondary.opacity(0.1), in: RoundedRectangle(cornerRadius: 10))
+                                }
+
+                                #if os(iOS)
+                                HStack(spacing: 10) {
+                                    Button {
+                                        handleEveningVoiceEntryTap()
+                                    } label: {
+                                        Label(
+                                            eveningVoiceEntry.isRecording ? "Stop Voice Entry" : "Voice Entry",
+                                            systemImage: eveningVoiceEntry.isRecording ? "stop.circle.fill" : "mic.fill"
+                                        )
+                                    }
+                                    .buttonStyle(.bordered)
+                                    .disabled(isPolishingEveningReflection)
+
+                                    if eveningVoiceEntry.isRecording {
+                                        Text("Listening...")
+                                            .font(.caption)
+                                            .foregroundStyle(.secondary)
+                                    }
+
+                                    if isPolishingEveningReflection {
+                                        ProgressView()
+                                        Text("Polishing...")
+                                            .font(.caption)
+                                            .foregroundStyle(.secondary)
+                                    }
+                                }
+
+                                if let error = eveningVoiceEntry.errorMessage {
+                                    Text(error)
+                                        .font(.caption)
+                                        .foregroundStyle(.red)
+                                }
+
+                                if let eveningReflectionPolishError {
+                                    Text(eveningReflectionPolishError)
+                                        .font(.caption)
+                                        .foregroundStyle(.red)
+                                }
+                                #endif
+
+                                TextEditor(text: $eveningReflection)
+                                    .frame(minHeight: 160)
+                            }
                         }
                     }
 
@@ -1119,12 +1230,14 @@ private struct DayEntryEditorView: View {
                 }
                 .padding()
             }
-            .navigationTitle("Day Details")
+            .navigationTitle(title)
             .toolbar {
                 #if os(iOS)
-                ToolbarItem(placement: .topBarLeading) {
-                    Button("Close") {
-                        closeEditor()
+                if showsCloseButton {
+                    ToolbarItem(placement: .topBarLeading) {
+                        Button("Close") {
+                            closeEditor()
+                        }
                     }
                 }
                 #endif
@@ -1139,7 +1252,8 @@ private struct DayEntryEditorView: View {
                     qualityScore = Double(existingEntry.qualityScore)
                     mood = canonicalMood(existingEntry.mood)
                     activities = existingEntry.activities ?? ""
-                    diaryText = existingEntry.diaryText ?? ""
+                    morningPlan = existingEntry.morningPlan ?? ""
+                    eveningReflection = existingEntry.eveningReflection ?? existingEntry.diaryText ?? ""
                     photoDatas = decodePhotoArray(from: existingEntry.photoData)
                 }
             }
@@ -1154,10 +1268,35 @@ private struct DayEntryEditorView: View {
             }
             .onDisappear {
                 #if os(iOS)
-                diaryVoiceEntry.stopRecording()
+                shouldPolishEveningReflectionOnStop = false
+                morningVoiceEntry.stopRecording()
+                eveningVoiceEntry.stopRecording()
                 #endif
             }
+            #if os(iOS)
+            .onChange(of: eveningVoiceEntry.isRecording) { _, isRecording in
+                guard !isRecording, shouldPolishEveningReflectionOnStop else { return }
+                shouldPolishEveningReflectionOnStop = false
+                Task {
+                    await polishEveningReflectionFromVoice()
+                }
+            }
+            #endif
         }
+    }
+
+    init(
+        date: Date,
+        existingEntry: DayEntry?,
+        onClose: @escaping () -> Void,
+        title: String = "Day Details",
+        showsCloseButton: Bool = true
+    ) {
+        self.date = date
+        self.existingEntry = existingEntry
+        self.onClose = onClose
+        self.title = title
+        self.showsCloseButton = showsCloseButton
     }
 
     private func save() {
@@ -1166,7 +1305,9 @@ private struct DayEntryEditorView: View {
         entry.qualityScore = Int16(qualityScore)
         entry.mood = canonicalMood(mood)
         entry.activities = normalizedTagCSV(activities)
-        entry.diaryText = diaryText
+        entry.morningPlan = morningPlan
+        entry.eveningReflection = eveningReflection
+        entry.diaryText = eveningReflection
         entry.photoData = encodePhotoArray(photoDatas)
         if entry.createdAt == nil {
             entry.createdAt = Date()
@@ -1185,11 +1326,92 @@ private struct DayEntryEditorView: View {
         dismiss()
     }
 
+    @MainActor
+    private func generateReflectionGuide() async {
+        reflectionGuideError = nil
+        isGeneratingReflectionGuide = true
+        defer { isGeneratingReflectionGuide = false }
+
+        do {
+            reflectionGuide = try await GeminiService.shared.generateReflectionGuide(
+                apiKey: geminiAPIKey,
+                model: geminiModel.trimmingCharacters(in: .whitespacesAndNewlines),
+                date: date,
+                qualityScore: Int(qualityScore),
+                mood: mood,
+                activities: activities,
+                morningPlan: morningPlan,
+                eveningReflection: eveningReflection
+            )
+        } catch {
+            reflectionGuideError = error.localizedDescription
+        }
+    }
+
+    private func insertReflectionGuide() {
+        guard !reflectionGuide.isEmpty else { return }
+        if eveningReflection.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            eveningReflection = reflectionGuide
+        } else {
+            eveningReflection += "\n\n\(reflectionGuide)"
+        }
+    }
+
+    #if os(iOS)
+    private func handleEveningVoiceEntryTap() {
+        eveningReflectionPolishError = nil
+
+        if eveningVoiceEntry.isRecording {
+            eveningVoiceEntry.stopRecording()
+            return
+        }
+
+        shouldPolishEveningReflectionOnStop = true
+        eveningVoiceEntry.toggle(for: eveningReflection) { updatedText in
+            eveningReflection = updatedText
+        }
+    }
+
+    @MainActor
+    private func polishEveningReflectionFromVoice() async {
+        let transcript = eveningReflection.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !transcript.isEmpty else { return }
+
+        eveningReflectionPolishError = nil
+        isPolishingEveningReflection = true
+        defer { isPolishingEveningReflection = false }
+
+        do {
+            let polished = try await GeminiService.shared.polishReflectionTranscript(
+                apiKey: geminiAPIKey,
+                model: geminiModel.trimmingCharacters(in: .whitespacesAndNewlines),
+                date: date,
+                qualityScore: Int(qualityScore),
+                mood: mood,
+                activities: activities,
+                morningPlan: morningPlan,
+                rawReflection: transcript
+            )
+            eveningReflection = polished
+        } catch {
+            eveningReflectionPolishError = "Could not polish reflection: \(error.localizedDescription)"
+        }
+    }
+    #endif
+
     #if os(macOS)
     private func currentWindow() -> NSWindow? {
         NSApp.keyWindow ?? NSApp.mainWindow
     }
     #endif
+
+    private enum DayEditorSection: String, CaseIterable, Identifiable {
+        case planning
+        case reflection
+
+        var id: String { rawValue }
+        var title: String { self == .planning ? "Planning" : "Reflection" }
+    }
 }
 
 private struct StatCard: View {

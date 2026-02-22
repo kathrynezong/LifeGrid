@@ -5,7 +5,9 @@
         <attribute name="createdAt" optional="NO" attributeType="Date" usesScalarValueType="NO"/>
         <attribute name="date" optional="NO" attributeType="Date" usesScalarValueType="NO"/>
         <attribute name="diaryText" optional="YES" attributeType="String"/>
+        <attribute name="eveningReflection" optional="YES" attributeType="String"/>
         <attribute name="mood" optional="NO" attributeType="String"/>
+        <attribute name="morningPlan" optional="YES" attributeType="String"/>
         <attribute name="photoData" optional="YES" attributeType="Binary" allowsExternalBinaryDataStorage="YES"/>
         <attribute name="qualityScore" optional="NO" attributeType="Integer 16" defaultValueString="5" usesScalarValueType="YES"/>
     </entity>

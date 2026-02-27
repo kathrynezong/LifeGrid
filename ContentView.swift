@@ -142,8 +142,9 @@ private struct LifeGridView: View {
 
     @State private var selectedDay: SelectedDay?
     @State private var displayedMonth = LifeGridView.startOfCurrentMonth()
+    @State private var isShowingMonthRecap = false
 
-    private let monthColumns = Array(repeating: GridItem(.flexible(minimum: 28, maximum: 52), spacing: 6), count: 7)
+    private let monthColumns = Array(repeating: GridItem(.flexible(minimum: 52, maximum: 130), spacing: 10), count: 7)
 
     private var expectancyRange: LifeExpectancyCalculator.ExpectancyRange {
         LifeExpectancyCalculator.estimateRange(
@@ -167,20 +168,12 @@ private struct LifeGridView: View {
         max(expectancyRange.averageYears * 365, daysLived + 1)
     }
 
-    private var lowerTotalDays: Int {
-        max(expectancyRange.lowerYears * 365, daysLived + 1)
-    }
-
     private var upperTotalDays: Int {
         max(expectancyRange.upperYears * 365, averageTotalDays + 1)
     }
 
     private var averageDaysLeft: Int {
         max(averageTotalDays - daysLived, 0)
-    }
-
-    private var daysLeftRange: ClosedRange<Int> {
-        max(lowerTotalDays - daysLived, 0)...max(upperTotalDays - daysLived, 0)
     }
 
     private var livedRatio: Double {
@@ -193,6 +186,10 @@ private struct LifeGridView: View {
             return Calendar.current.startOfDay(for: date)
         })
         return loggedDays.count
+    }
+
+    private var displayedMonthPhotos: [Data] {
+        monthPhotoDatas(for: displayedMonth)
     }
 
     var body: some View {
@@ -213,52 +210,31 @@ private struct LifeGridView: View {
                             Text("Lived: \(daysLived) days")
                                 .font(.subheadline)
                             Spacer()
-                            Text("Left: \(daysLeftRange.lowerBound)-\(daysLeftRange.upperBound) days (avg \(averageDaysLeft))")
+                            Text("Left (avg): \(averageDaysLeft) days")
                                 .font(.subheadline)
+                                .foregroundStyle(.secondary)
                         }
 
                         GeometryReader { geometry in
                             let livedWidth = geometry.size.width * livedRatio
                             let remainingWidth = max(geometry.size.width - livedWidth, 0)
-                            let sigmaDays = max(expectancyRange.stdDevYears * 365, 1)
-                            let averageRemaining = Double(averageTotalDays - daysLived)
-                            let remainingHorizon = max(Double(upperTotalDays - daysLived), 1)
-                            let mean = min(max(averageRemaining / remainingHorizon, 0), 1)
-                            let oneLow = min(max((averageRemaining - sigmaDays) / remainingHorizon, 0), 1)
-                            let oneHigh = min(max((averageRemaining + sigmaDays) / remainingHorizon, 0), 1)
-                            let twoLow = min(max((averageRemaining - (2 * sigmaDays)) / remainingHorizon, 0), 1)
-                            let twoHigh = min(max((averageRemaining + (2 * sigmaDays)) / remainingHorizon, 0), 1)
                             let markerLabelWidth: CGFloat = 80
+                            let barHeight: CGFloat = 16
                             let milestones: [(position: Double, label: String)] = [
                                 (min(max(Double(daysLived) / Double(upperTotalDays), 0), 1), "Now \(age)y"),
-                                (min(max(Double(lowerTotalDays) / Double(upperTotalDays), 0), 1), "-2σ \(expectancyRange.lowerYears)y"),
-                                (min(max(Double(averageTotalDays) / Double(upperTotalDays), 0), 1), "Avg \(expectancyRange.averageYears)y"),
-                                (min(max(Double(upperTotalDays) / Double(upperTotalDays), 0), 1), "+2σ \(expectancyRange.upperYears)y")
+                                (min(max(Double(averageTotalDays) / Double(upperTotalDays), 0), 1), "Avg \(expectancyRange.averageYears)y")
                             ]
 
                             ZStack(alignment: .topLeading) {
                                 HStack(spacing: 0) {
                                     Rectangle()
-                                        .fill(Color.blue)
+                                        .fill(Color(red: 0.62, green: 0.82, blue: 0.98))
                                         .frame(width: livedWidth)
                                     Rectangle()
-                                        .fill(
-                                            LinearGradient(
-                                                stops: [
-                                                    .init(color: Color.green.opacity(0.12), location: 0),
-                                                    .init(color: Color.green.opacity(0.28), location: twoLow),
-                                                    .init(color: Color.green.opacity(0.52), location: oneLow),
-                                                    .init(color: Color.green.opacity(1.0), location: mean),
-                                                    .init(color: Color.green.opacity(0.52), location: oneHigh),
-                                                    .init(color: Color.green.opacity(0.28), location: twoHigh),
-                                                    .init(color: Color.green.opacity(0.12), location: 1)
-                                                ],
-                                                startPoint: .leading,
-                                                endPoint: .trailing
-                                            )
-                                        )
+                                        .fill(Color(red: 0.86, green: 0.88, blue: 0.91))
                                         .frame(width: remainingWidth)
                                 }
+                                .frame(height: barHeight)
                                 .clipShape(RoundedRectangle(cornerRadius: 8))
                                 .overlay(
                                     RoundedRectangle(cornerRadius: 8)
@@ -271,19 +247,19 @@ private struct LifeGridView: View {
                                     ZStack(alignment: .topLeading) {
                                         Rectangle()
                                             .fill(Color.primary.opacity(0.7))
-                                            .frame(width: 1, height: 16)
-                                            .position(x: rawX, y: 8)
+                                            .frame(width: 1, height: 10)
+                                            .position(x: rawX, y: barHeight + 5)
 
                                         Text(marker.label)
                                             .font(.caption2)
                                             .foregroundStyle(.secondary)
                                             .frame(width: markerLabelWidth, alignment: .center)
-                                            .position(x: clampedX, y: 25)
+                                            .position(x: clampedX, y: barHeight + 18)
                                     }
                                 }
                             }
                         }
-                        .frame(height: 42)
+                        .frame(height: 44)
                     }
 
                     VStack(alignment: .leading, spacing: 12) {
@@ -317,16 +293,27 @@ private struct LifeGridView: View {
                                     .labelStyle(.iconOnly)
                             }
                             .buttonStyle(.bordered)
+
+                            Spacer()
+
+                            Button {
+                                isShowingMonthRecap = true
+                            } label: {
+                                Label("Month Recap", systemImage: "photo.stack")
+                            }
+                            .buttonStyle(.borderedProminent)
+                            .disabled(displayedMonthPhotos.isEmpty)
                         }
 
                         monthSection(for: displayedMonth)
                     }
 
-                    Text("Use arrows, then tap any day to open details.")
+                    Text("Use arrows to move between months, then tap any day to open details.")
                         .font(.footnote)
                         .foregroundStyle(.secondary)
                 }
                 .padding()
+                .frame(maxWidth: .infinity, alignment: .leading)
             }
             .navigationTitle("")
             #if os(iOS)
@@ -377,6 +364,9 @@ private struct LifeGridView: View {
                     onClose: { selectedDay = nil }
                 )
             }
+            .sheet(isPresented: $isShowingMonthRecap) {
+                MonthRecapView(month: displayedMonth, photoDatas: displayedMonthPhotos)
+            }
             #else
             .sheet(item: $selectedDay) { day in
                 DayEntryEditorView(
@@ -385,6 +375,10 @@ private struct LifeGridView: View {
                     onClose: { selectedDay = nil }
                 )
                     .frame(minWidth: 560, minHeight: 640)
+            }
+            .sheet(isPresented: $isShowingMonthRecap) {
+                MonthRecapView(month: displayedMonth, photoDatas: displayedMonthPhotos)
+                    .frame(minWidth: 760, minHeight: 620)
             }
             #endif
         }
@@ -419,6 +413,22 @@ private struct LifeGridView: View {
         }
     }
 
+    private func monthPhotoDatas(for month: Date) -> [Data] {
+        let calendar = Calendar.current
+        let monthStart = calendar.date(from: calendar.dateComponents([.year, .month], from: month)) ?? month
+        guard let monthEnd = calendar.date(byAdding: .month, value: 1, to: monthStart) else { return [] }
+
+        return entries
+            .compactMap { entry -> (Date, [Data])? in
+                guard let date = entry.date else { return nil }
+                let day = calendar.startOfDay(for: date)
+                guard day >= monthStart && day < monthEnd else { return nil }
+                return (day, decodePhotoArray(from: entry.photoData))
+            }
+            .sorted { $0.0 < $1.0 }
+            .flatMap { $0.1 }
+    }
+
     private func isSelected(_ day: Date) -> Bool {
         guard let selectedDay else { return false }
         return Calendar.current.isDate(selectedDay.date, inSameDayAs: day)
@@ -439,9 +449,16 @@ private struct LifeGridView: View {
         }
     }
 
+    private func selectedThumbnailPhotoData(from entry: DayEntry?) -> Data? {
+        guard let entry else { return nil }
+        let payload = decodePhotoPayload(from: entry.photoData)
+        guard let index = payload.thumbnailIndex, payload.photos.indices.contains(index) else { return nil }
+        return payload.photos[index]
+    }
+
     private func monthSection(for month: Date) -> some View {
         VStack(alignment: .leading, spacing: 10) {
-            LazyVGrid(columns: monthColumns, spacing: 8) {
+            LazyVGrid(columns: monthColumns, spacing: 10) {
                 ForEach(weekdaySymbols(), id: \.self) { weekday in
                     Text(weekday)
                         .font(.caption2)
@@ -454,11 +471,27 @@ private struct LifeGridView: View {
                         let entry = entryForDay(day)
                         RoundedRectangle(cornerRadius: 8)
                             .fill(color(for: entry))
-                            .frame(height: 38)
+                            .aspectRatio(1, contentMode: .fit)
                             .overlay(
-                                Text(day.formatted(.dateTime.day()))
-                                    .font(.caption)
-                                    .foregroundStyle(.primary)
+                                VStack(spacing: 3) {
+                                    Text(day.formatted(.dateTime.day()))
+                                        .font(.caption.weight(.semibold))
+                                        .foregroundStyle(.primary)
+
+                                    if
+                                        let thumbnailData = selectedThumbnailPhotoData(from: entry),
+                                        let image = platformSwiftUIImage(from: thumbnailData)
+                                    {
+                                        image
+                                            .resizable()
+                                            .scaledToFill()
+                                            .frame(maxWidth: .infinity)
+                                            .frame(height: 46)
+                                            .clipped()
+                                            .clipShape(RoundedRectangle(cornerRadius: 6))
+                                    }
+                                }
+                                .padding(4)
                             )
                             .overlay(
                                 RoundedRectangle(cornerRadius: 8)
@@ -476,13 +509,14 @@ private struct LifeGridView: View {
                             }
                     } else {
                         Color.clear
-                            .frame(height: 38)
+                            .aspectRatio(1, contentMode: .fit)
                     }
                 }
             }
         }
         .padding(.vertical, 6)
-        .padding(.horizontal, 10)
+        .padding(.horizontal, 4)
+        .frame(maxWidth: .infinity, alignment: .leading)
         .background(Color.secondary.opacity(0.06), in: RoundedRectangle(cornerRadius: 14))
     }
 
@@ -996,6 +1030,10 @@ private struct DayEntryEditorView: View {
     @State private var isGeneratingReflectionGuide = false
     @State private var selectedPhotoItems: [PhotosPickerItem] = []
     @State private var photoDatas: [Data] = []
+    @State private var selectedThumbnailIndex: Int = -1
+    @State private var selectedMemoryIndex = 0
+    @State private var isShowingMemoryViewer = false
+    @State private var didPersistBeforeDismiss = false
     #if os(iOS)
     @StateObject private var morningVoiceEntry = VoiceEntryController()
     @StateObject private var eveningVoiceEntry = VoiceEntryController()
@@ -1013,7 +1051,7 @@ private struct DayEntryEditorView: View {
                     #if os(macOS)
                     HStack(spacing: 10) {
                         Button {
-                            dismiss()
+                            closeEditor()
                         } label: {
                             Image(systemName: "x.circle.fill")
                                 .foregroundStyle(.red)
@@ -1138,10 +1176,15 @@ private struct DayEntryEditorView: View {
                                 }
 
                                 if !reflectionGuide.isEmpty {
-                                    Text(reflectionGuide)
+                                    TextEditor(text: .constant(reflectionGuide))
                                         .font(.footnote)
-                                        .padding(10)
-                                        .background(Color.secondary.opacity(0.1), in: RoundedRectangle(cornerRadius: 10))
+                                        .disabled(true)
+                                        .frame(maxWidth: .infinity, minHeight: 160, maxHeight: 380, alignment: .topLeading)
+                                        .padding(6)
+                                        #if os(iOS)
+                                        .scrollContentBackground(.hidden)
+                                        #endif
+                                    .background(Color.secondary.opacity(0.1), in: RoundedRectangle(cornerRadius: 10))
                                 }
 
                                 #if os(iOS)
@@ -1190,40 +1233,100 @@ private struct DayEntryEditorView: View {
                         }
                     }
 
-                    GroupBox("Photo") {
-                        VStack(alignment: .leading, spacing: 10) {
-                            PhotosPicker(selection: $selectedPhotoItems, maxSelectionCount: 8, matching: .images) {
-                                Label("Select Photos", systemImage: "photo.on.rectangle.angled")
-                            }
-
+                    GroupBox("Memories") {
+                        VStack(alignment: .leading, spacing: 12) {
                             if photoDatas.isEmpty {
-                                Text("No photos selected.")
-                                    .font(.footnote)
-                                    .foregroundStyle(.secondary)
+                                PhotosPicker(selection: $selectedPhotoItems, maxSelectionCount: 8, matching: .images) {
+                                    VStack(spacing: 10) {
+                                        Image(systemName: "plus")
+                                            .font(.system(size: 26, weight: .bold))
+                                        Text("Add Photos")
+                                            .font(.headline)
+                                        Text("Create a memory for this day")
+                                            .font(.footnote)
+                                            .foregroundStyle(.secondary)
+                                    }
+                                    .frame(maxWidth: .infinity, minHeight: 180)
+                                    .background(
+                                        RoundedRectangle(cornerRadius: 14)
+                                            .fill(Color.secondary.opacity(0.08))
+                                    )
+                                    .overlay(
+                                        RoundedRectangle(cornerRadius: 14)
+                                            .stroke(Color.secondary.opacity(0.35), style: StrokeStyle(lineWidth: 1, dash: [7, 5]))
+                                    )
+                                }
                             } else {
-                                ScrollView(.horizontal, showsIndicators: false) {
-                                    HStack(spacing: 10) {
-                                        ForEach(Array(photoDatas.enumerated()), id: \.offset) { index, data in
-                                            ZStack(alignment: .topTrailing) {
-                                                if let image = platformSwiftUIImage(from: data) {
-                                                    image
-                                                        .resizable()
-                                                        .scaledToFill()
-                                                        .frame(width: 110, height: 110)
-                                                        .clipShape(RoundedRectangle(cornerRadius: 10))
-                                                }
-
-                                                Button {
-                                                    photoDatas.remove(at: index)
-                                                } label: {
-                                                    Image(systemName: "xmark.circle.fill")
-                                                        .foregroundStyle(.white, .black.opacity(0.7))
-                                                }
-                                                .offset(x: 4, y: -4)
+                                TabView {
+                                    ForEach(Array(photoDatas.enumerated()), id: \.offset) { index, data in
+                                        ZStack(alignment: .topTrailing) {
+                                            if let image = platformSwiftUIImage(from: data) {
+                                                image
+                                                    .resizable()
+                                                    .scaledToFill()
+                                                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                                                    .clipped()
+                                            } else {
+                                                Color.secondary.opacity(0.15)
                                             }
+
+                                            Button {
+                                                if selectedThumbnailIndex == index {
+                                                    selectedThumbnailIndex = -1
+                                                } else if selectedThumbnailIndex > index {
+                                                    selectedThumbnailIndex -= 1
+                                                }
+                                                photoDatas.remove(at: index)
+                                            } label: {
+                                                Image(systemName: "xmark.circle.fill")
+                                                    .font(.title3)
+                                                    .foregroundStyle(.white, .black.opacity(0.7))
+                                            }
+                                            .padding(10)
+                                        }
+                                        .clipShape(RoundedRectangle(cornerRadius: 14))
+                                        .padding(.horizontal, 2)
+                                        .contentShape(RoundedRectangle(cornerRadius: 14))
+                                        .onTapGesture {
+                                            selectedMemoryIndex = index
+                                            isShowingMemoryViewer = true
                                         }
                                     }
                                 }
+                                .frame(height: 280)
+                                .tabViewStyle(.page(indexDisplayMode: .automatic))
+
+                                Picker("Calendar Thumbnail", selection: $selectedThumbnailIndex) {
+                                    Text("None").tag(-1)
+                                    ForEach(Array(photoDatas.enumerated()), id: \.offset) { index, _ in
+                                        Text("Photo \(index + 1)").tag(index)
+                                    }
+                                }
+                                .pickerStyle(.menu)
+
+                                Text("Thumbnail default is None. Pick one to show it on the calendar.")
+                                    .font(.footnote)
+                                    .foregroundStyle(.secondary)
+
+                                PhotosPicker(selection: $selectedPhotoItems, maxSelectionCount: 8, matching: .images) {
+                                    HStack(spacing: 10) {
+                                        Image(systemName: "plus.circle.fill")
+                                            .font(.title2)
+                                        Text("Add More Photos")
+                                            .font(.headline)
+                                        Spacer()
+                                    }
+                                    .padding(.horizontal, 14)
+                                    .frame(maxWidth: .infinity, minHeight: 62)
+                                    .background(
+                                        RoundedRectangle(cornerRadius: 12)
+                                            .fill(Color.secondary.opacity(0.1))
+                                    )
+                                }
+
+                                Text("Swipe to view all photos for this day.")
+                                    .font(.footnote)
+                                    .foregroundStyle(.secondary)
                             }
                         }
                     }
@@ -1234,18 +1337,13 @@ private struct DayEntryEditorView: View {
             .toolbar {
                 #if os(iOS)
                 if showsCloseButton {
-                    ToolbarItem(placement: .topBarLeading) {
-                        Button("Close") {
+                    ToolbarItem(placement: .topBarTrailing) {
+                        Button("Done") {
                             closeEditor()
                         }
                     }
                 }
                 #endif
-                ToolbarItem(placement: .confirmationAction) {
-                    Button("Save") {
-                        save()
-                    }
-                }
             }
             .onAppear {
                 if let existingEntry {
@@ -1254,7 +1352,9 @@ private struct DayEntryEditorView: View {
                     activities = existingEntry.activities ?? ""
                     morningPlan = existingEntry.morningPlan ?? ""
                     eveningReflection = existingEntry.eveningReflection ?? existingEntry.diaryText ?? ""
-                    photoDatas = decodePhotoArray(from: existingEntry.photoData)
+                    let photoPayload = decodePhotoPayload(from: existingEntry.photoData)
+                    photoDatas = photoPayload.photos
+                    selectedThumbnailIndex = photoPayload.thumbnailIndex ?? -1
                 }
             }
             .task(id: selectedPhotoItems) {
@@ -1264,9 +1364,15 @@ private struct DayEntryEditorView: View {
                         photoDatas.append(data)
                     }
                 }
+                if !photoDatas.indices.contains(selectedThumbnailIndex) {
+                    selectedThumbnailIndex = -1
+                }
                 selectedPhotoItems.removeAll()
             }
             .onDisappear {
+                if !didPersistBeforeDismiss && !isShowingMemoryViewer {
+                    persistChanges()
+                }
                 #if os(iOS)
                 shouldPolishEveningReflectionOnStop = false
                 morningVoiceEntry.stopRecording()
@@ -1280,6 +1386,16 @@ private struct DayEntryEditorView: View {
                 Task {
                     await polishEveningReflectionFromVoice()
                 }
+            }
+            #endif
+            #if os(iOS)
+            .fullScreenCover(isPresented: $isShowingMemoryViewer) {
+                MemoryPhotoViewer(photoDatas: photoDatas, startIndex: selectedMemoryIndex)
+            }
+            #else
+            .sheet(isPresented: $isShowingMemoryViewer) {
+                MemoryPhotoViewer(photoDatas: photoDatas, startIndex: selectedMemoryIndex)
+                    .frame(minWidth: 700, minHeight: 560)
             }
             #endif
         }
@@ -1299,7 +1415,10 @@ private struct DayEntryEditorView: View {
         self.showsCloseButton = showsCloseButton
     }
 
-    private func save() {
+    private func persistChanges() {
+        if existingEntry == nil && !hasMeaningfulContent() {
+            return
+        }
         let entry = existingEntry ?? DayEntry(context: viewContext)
         entry.date = Calendar.current.startOfDay(for: date)
         entry.qualityScore = Int16(qualityScore)
@@ -1308,20 +1427,32 @@ private struct DayEntryEditorView: View {
         entry.morningPlan = morningPlan
         entry.eveningReflection = eveningReflection
         entry.diaryText = eveningReflection
-        entry.photoData = encodePhotoArray(photoDatas)
+        let thumbnailIndex = photoDatas.indices.contains(selectedThumbnailIndex) ? selectedThumbnailIndex : nil
+        entry.photoData = encodePhotoArray(photoDatas, thumbnailIndex: thumbnailIndex)
         if entry.createdAt == nil {
             entry.createdAt = Date()
         }
 
         do {
             try viewContext.save()
-            closeEditor()
         } catch {
             viewContext.rollback()
         }
     }
 
+    private func hasMeaningfulContent() -> Bool {
+        let hasText = !morningPlan.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            || !eveningReflection.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            || !activities.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        let hasPhotos = !photoDatas.isEmpty
+        let hasNonDefaultMood = canonicalMood(mood) != "Good"
+        let hasNonDefaultScore = Int(qualityScore) != 5
+        return hasText || hasPhotos || hasNonDefaultMood || hasNonDefaultScore
+    }
+
     private func closeEditor() {
+        persistChanges()
+        didPersistBeforeDismiss = true
         onClose()
         dismiss()
     }
@@ -1405,12 +1536,171 @@ private struct DayEntryEditorView: View {
     }
     #endif
 
-    private enum DayEditorSection: String, CaseIterable, Identifiable {
+private enum DayEditorSection: String, CaseIterable, Identifiable {
         case planning
         case reflection
 
         var id: String { rawValue }
         var title: String { self == .planning ? "Planning" : "Reflection" }
+    }
+}
+
+private struct MemoryPhotoViewer: View {
+    @Environment(\.dismiss) private var dismiss
+
+    let photoDatas: [Data]
+
+    @State private var currentIndex: Int
+
+    init(photoDatas: [Data], startIndex: Int) {
+        self.photoDatas = photoDatas
+        let safeIndex = min(max(startIndex, 0), max(photoDatas.count - 1, 0))
+        _currentIndex = State(initialValue: safeIndex)
+    }
+
+    var body: some View {
+        ZStack {
+            Color.black.opacity(0.45)
+                .ignoresSafeArea()
+
+            VStack(spacing: 12) {
+                HStack {
+                    Text("Memories")
+                        .font(.title3.weight(.semibold))
+                    Spacer()
+                    Button {
+                        dismiss()
+                    } label: {
+                        Image(systemName: "xmark.circle.fill")
+                            .font(.title2)
+                            .foregroundStyle(.secondary)
+                    }
+                    .buttonStyle(.plain)
+                }
+
+                if photoDatas.isEmpty {
+                    RoundedRectangle(cornerRadius: 14)
+                        .fill(Color.secondary.opacity(0.1))
+                        .overlay {
+                            Text("No photos to display.")
+                                .foregroundStyle(.secondary)
+                        }
+                } else {
+                    TabView(selection: $currentIndex) {
+                        ForEach(Array(photoDatas.enumerated()), id: \.offset) { index, data in
+                            ZStack {
+                                RoundedRectangle(cornerRadius: 14)
+                                    .fill(Color.black.opacity(0.92))
+                                if let image = platformSwiftUIImage(from: data) {
+                                    image
+                                        .resizable()
+                                        .scaledToFit()
+                                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                                        .padding(12)
+                                }
+                            }
+                            .tag(index)
+                            .clipShape(RoundedRectangle(cornerRadius: 14))
+                        }
+                    }
+                    .tabViewStyle(.page(indexDisplayMode: .automatic))
+                }
+
+                if !photoDatas.isEmpty {
+                    Text("\(currentIndex + 1) of \(photoDatas.count)")
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(.secondary)
+                }
+            }
+            .padding(18)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 22))
+            .overlay(
+                RoundedRectangle(cornerRadius: 22)
+                    .stroke(Color.white.opacity(0.3), lineWidth: 1)
+            )
+            .padding(10)
+        }
+    }
+}
+
+private struct MonthRecapView: View {
+    @Environment(\.dismiss) private var dismiss
+
+    let month: Date
+    let photoDatas: [Data]
+
+    @State private var currentIndex = 0
+    private let autoAdvanceTimer = Timer.publish(every: 2.4, on: .main, in: .common).autoconnect()
+
+    var body: some View {
+        ZStack {
+            Color.black.opacity(0.45)
+                .ignoresSafeArea()
+
+            VStack(spacing: 12) {
+                HStack {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Memories")
+                            .font(.title3.weight(.semibold))
+                        Text(month.formatted(.dateTime.month(.wide).year()))
+                            .font(.subheadline)
+                            .foregroundStyle(.secondary)
+                    }
+                    Spacer()
+                    Button {
+                        dismiss()
+                    } label: {
+                        Image(systemName: "xmark.circle.fill")
+                            .font(.title2)
+                            .foregroundStyle(.secondary)
+                    }
+                    .buttonStyle(.plain)
+                }
+
+                ZStack {
+                    RoundedRectangle(cornerRadius: 14)
+                        .fill(Color.black.opacity(0.92))
+
+                    if photoDatas.isEmpty {
+                        Text("No photos for this month.")
+                            .foregroundStyle(.secondary)
+                    } else if let image = platformSwiftUIImage(from: photoDatas[currentIndex]) {
+                        image
+                            .resizable()
+                            .scaledToFit()
+                            .frame(maxWidth: .infinity, maxHeight: .infinity)
+                            .padding(12)
+                            .transition(.opacity)
+                    }
+                }
+                .clipShape(RoundedRectangle(cornerRadius: 14))
+                .frame(maxWidth: .infinity, minHeight: 360, maxHeight: 560)
+
+                if !photoDatas.isEmpty {
+                    Text("\(currentIndex + 1) of \(photoDatas.count)")
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(.secondary)
+                }
+            }
+            .padding(18)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 22))
+            .overlay(
+                RoundedRectangle(cornerRadius: 22)
+                    .stroke(Color.white.opacity(0.3), lineWidth: 1)
+            )
+            .padding(10)
+            .onAppear {
+                currentIndex = 0
+            }
+            .onReceive(autoAdvanceTimer) { _ in
+                guard photoDatas.count > 1 else { return }
+                withAnimation(.easeInOut(duration: 0.35)) {
+                    currentIndex = (currentIndex + 1) % photoDatas.count
+                }
+            }
+        }
     }
 }
 
@@ -1470,10 +1760,11 @@ private final class VoiceEntryController: NSObject, ObservableObject {
 
     func stopRecording(suppressCancellationError: Bool = true) {
         self.suppressCancellationError = suppressCancellationError
-        let finalText = composedText()
+        let finalText = composedText(applyPunctuation: true)
         if !finalText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             onTextUpdate?(finalText)
         }
+        onTextUpdate = nil
         if audioEngine.isRunning {
             audioEngine.stop()
         }
@@ -1544,11 +1835,12 @@ private final class VoiceEntryController: NSObject, ObservableObject {
             guard let self else { return }
             if let result {
                 Task { @MainActor in
+                    guard self.isRecording else { return }
                     let candidate = result.bestTranscription.formattedString
                         .trimmingCharacters(in: .whitespacesAndNewlines)
                     if !candidate.isEmpty {
                         self.latestTranscript = candidate
-                        self.onTextUpdate?(self.composedText())
+                        self.onTextUpdate?(self.composedText(applyPunctuation: false))
                     }
                     if result.isFinal {
                         self.stopRecording(suppressCancellationError: true)
@@ -1558,6 +1850,7 @@ private final class VoiceEntryController: NSObject, ObservableObject {
 
             if let error {
                 Task { @MainActor in
+                    guard self.isRecording else { return }
                     if self.shouldIgnoreRecognitionError(error) {
                         self.stopRecording(suppressCancellationError: true)
                         return
@@ -1584,15 +1877,41 @@ private final class VoiceEntryController: NSObject, ObservableObject {
         return false
     }
 
-    private func composedText() -> String {
+    private func composedText(applyPunctuation: Bool) -> String {
         let spoken = latestTranscript.trimmingCharacters(in: .whitespacesAndNewlines)
+        let mergedText: String
         if baseText.isEmpty {
-            return spoken
+            mergedText = spoken
+        } else if spoken.isEmpty {
+            mergedText = baseText
+        } else {
+            mergedText = "\(baseText)\n\(spoken)"
         }
-        if spoken.isEmpty {
-            return baseText
+
+        if applyPunctuation {
+            return punctuateDictationText(mergedText)
         }
-        return "\(baseText)\n\(spoken)"
+        return mergedText
+    }
+
+    private func punctuateDictationText(_ text: String) -> String {
+        let lines = text
+            .components(separatedBy: .newlines)
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+
+        let punctuated = lines.map { line in
+            var updated = line
+            if let first = updated.first {
+                updated.replaceSubrange(updated.startIndex...updated.startIndex, with: String(first).uppercased())
+            }
+            if let last = updated.last, ![".", "!", "?"].contains(last) {
+                updated += "."
+            }
+            return updated
+        }
+
+        return punctuated.joined(separator: "\n")
     }
 
     private func requestPermissions(completion: @escaping (Bool, String?) -> Void) {
@@ -1620,14 +1939,60 @@ private final class VoiceEntryController: NSObject, ObservableObject {
 
 private struct TagOrganizerView: View {
     @Binding var activities: String
+    @AppStorage("customQuickTagGroupsJSON") private var customQuickTagGroupsJSON = "{}"
+    @State private var customTag = ""
+    @State private var selectedCustomTagCategory = "Growth"
 
     private var selectedTags: Set<String> {
         Set(tags(from: activities).map { $0.lowercased() })
     }
 
+    private var customQuickTagGroups: [String: [String]] {
+        decodeCustomQuickTagGroups(from: customQuickTagGroupsJSON)
+    }
+
+    private var categoryTitles: [String] {
+        defaultQuickTagGroups.map(\.title)
+    }
+
+    private var quickTagGroups: [QuickTagGroup] {
+        defaultQuickTagGroups.map { baseGroup in
+            let customTags = customQuickTagGroups[baseGroup.title] ?? []
+            let merged = mergeTagsPreservingOrder(primary: baseGroup.tags, secondary: customTags)
+            return QuickTagGroup(title: baseGroup.title, tags: merged)
+        }
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            ForEach(defaultQuickTagGroups) { group in
+            VStack(alignment: .leading, spacing: 8) {
+                Text("Custom tag")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+
+                HStack(spacing: 8) {
+                    TextField("Add your own tag", text: $customTag)
+                        .textInputAutocapitalization(.words)
+
+                    Picker("Category", selection: $selectedCustomTagCategory) {
+                        ForEach(categoryTitles, id: \.self) { title in
+                            Text(title).tag(title)
+                        }
+                    }
+                    .pickerStyle(.menu)
+
+                    Button("Add") {
+                        let trimmed = customTag.trimmingCharacters(in: .whitespacesAndNewlines)
+                        guard !trimmed.isEmpty else { return }
+                        addCustomQuickTag(trimmed, to: selectedCustomTagCategory)
+                        activities = addTag(trimmed, to: activities)
+                        customTag = ""
+                    }
+                    .buttonStyle(.bordered)
+                }
+            }
+
+            ForEach(quickTagGroups) { group in
                 VStack(alignment: .leading, spacing: 6) {
                     Text(group.title)
                         .font(.caption)
@@ -1662,6 +2027,23 @@ private struct TagOrganizerView: View {
             TextField("Tags (comma-separated): Work, Exercise, Family", text: $activities)
                 .textInputAutocapitalization(.words)
         }
+        .onAppear {
+            if !categoryTitles.contains(selectedCustomTagCategory), let first = categoryTitles.first {
+                selectedCustomTagCategory = first
+            }
+        }
+    }
+
+    private func addCustomQuickTag(_ tag: String, to category: String) {
+        guard !category.isEmpty else { return }
+        var groups = customQuickTagGroups
+        var tagsForCategory = groups[category] ?? []
+        let lowercased = tag.lowercased()
+        if !tagsForCategory.map({ $0.lowercased() }).contains(lowercased) {
+            tagsForCategory.append(tag)
+            groups[category] = tagsForCategory
+            customQuickTagGroupsJSON = encodeCustomQuickTagGroups(groups)
+        }
     }
 }
 
@@ -1672,11 +2054,56 @@ private struct QuickTagGroup: Identifiable {
 }
 
 private let defaultQuickTagGroups: [QuickTagGroup] = [
-    QuickTagGroup(title: "Focus", tags: ["Work", "Study", "Reading", "Project"]),
-    QuickTagGroup(title: "Wellness", tags: ["Exercise", "Health", "Rest", "Meditation"]),
-    QuickTagGroup(title: "People", tags: ["Family", "Friends", "Partner", "Social"]),
-    QuickTagGroup(title: "Life", tags: ["Travel", "Nature", "Home", "Errands"])
+    QuickTagGroup(title: "Growth", tags: ["Work", "Study", "Projects", "Hobbies"]),
+    QuickTagGroup(title: "Energy/Wellness", tags: ["Exercise", "Health", "Rest", "Recovery"]),
+    QuickTagGroup(title: "Connection", tags: ["Family", "Friends", "Partner", "Social"]),
+    QuickTagGroup(title: "Living", tags: ["Nature", "Home", "Travel", "Errands"])
 ]
+
+private func decodeCustomQuickTagGroups(from json: String) -> [String: [String]] {
+    guard let data = json.data(using: .utf8), !json.isEmpty else { return [:] }
+    guard let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return [:] }
+
+    var result: [String: [String]] = [:]
+    for (key, value) in object {
+        guard let tags = value as? [String] else { continue }
+        let normalized = tags
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+        if !normalized.isEmpty {
+            result[key] = mergeTagsPreservingOrder(primary: [], secondary: normalized)
+        }
+    }
+    return result
+}
+
+private func encodeCustomQuickTagGroups(_ groups: [String: [String]]) -> String {
+    guard !groups.isEmpty else { return "{}" }
+    guard
+        JSONSerialization.isValidJSONObject(groups),
+        let data = try? JSONSerialization.data(withJSONObject: groups),
+        let json = String(data: data, encoding: .utf8)
+    else {
+        return "{}"
+    }
+    return json
+}
+
+private func mergeTagsPreservingOrder(primary: [String], secondary: [String]) -> [String] {
+    var merged: [String] = []
+    var seen = Set<String>()
+
+    for tag in primary + secondary {
+        let trimmed = tag.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { continue }
+        let key = trimmed.lowercased()
+        if !seen.contains(key) {
+            seen.insert(key)
+            merged.append(trimmed)
+        }
+    }
+    return merged
+}
 
 private func tags(from text: String?) -> [String] {
     guard let text else { return [] }
@@ -1734,27 +2161,51 @@ private func canonicalMood(_ mood: String?) -> String {
     }
 }
 
-private func encodePhotoArray(_ photos: [Data]) -> Data? {
+private struct PhotoPayload {
+    let photos: [Data]
+    let thumbnailIndex: Int?
+}
+
+private func encodePhotoArray(_ photos: [Data], thumbnailIndex: Int? = nil) -> Data? {
     guard !photos.isEmpty else { return nil }
-    if photos.count == 1 {
+    let validThumbnailIndex: Int? = {
+        guard let thumbnailIndex, photos.indices.contains(thumbnailIndex) else { return nil }
+        return thumbnailIndex
+    }()
+
+    if photos.count == 1 && validThumbnailIndex == nil {
         return photos[0]
     }
-    let payload = ["photos": photos.map { $0.base64EncodedString() }]
+    var payload: [String: Any] = ["photos": photos.map { $0.base64EncodedString() }]
+    if let validThumbnailIndex {
+        payload["thumbnailIndex"] = validThumbnailIndex
+    }
     return try? JSONSerialization.data(withJSONObject: payload)
 }
 
-private func decodePhotoArray(from data: Data?) -> [Data] {
-    guard let data else { return [] }
+private func decodePhotoPayload(from data: Data?) -> PhotoPayload {
+    guard let data else { return PhotoPayload(photos: [], thumbnailIndex: nil) }
     if
         let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
         let base64Photos = object["photos"] as? [String]
     {
         let decoded = base64Photos.compactMap { Data(base64Encoded: $0) }
         if !decoded.isEmpty {
-            return decoded
+            let decodedThumbnailIndex = object["thumbnailIndex"] as? Int
+            let safeThumbnailIndex: Int?
+            if let decodedThumbnailIndex, decoded.indices.contains(decodedThumbnailIndex) {
+                safeThumbnailIndex = decodedThumbnailIndex
+            } else {
+                safeThumbnailIndex = nil
+            }
+            return PhotoPayload(photos: decoded, thumbnailIndex: safeThumbnailIndex)
         }
     }
-    return [data]
+    return PhotoPayload(photos: [data], thumbnailIndex: nil)
+}
+
+private func decodePhotoArray(from data: Data?) -> [Data] {
+    decodePhotoPayload(from: data).photos
 }
 
 private func platformSwiftUIImage(from data: Data) -> Image? {

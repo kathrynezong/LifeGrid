@@ -53,7 +53,7 @@ The app gives users:
 - Profile and expectancy context.
 - Morning/evening reminder scheduling.
 - Data management actions.
-- AI reflection settings for guided prompts.
+- Offline reflection template support (no external API required).
 
 ## Tech Stack
 

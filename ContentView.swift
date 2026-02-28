@@ -857,8 +857,6 @@ private struct SettingsView: View {
     @AppStorage("morningMinute") private var morningMinute = 0
     @AppStorage("eveningHour") private var eveningHour = 20
     @AppStorage("eveningMinute") private var eveningMinute = 0
-    @AppStorage("geminiApiKey") private var geminiAPIKey = ""
-    @AppStorage("geminiModel") private var geminiModel = "gemini-2.5-flash"
 
     @State private var showDeleteAlert = false
     @State private var showReminderResultAlert = false
@@ -924,16 +922,6 @@ private struct SettingsView: View {
                             }
                         }
                     }
-                }
-
-                Section("AI Reflection Guide") {
-                    SecureField("Gemini API Key", text: $geminiAPIKey)
-
-                    TextField("Model", text: $geminiModel)
-
-                    Text("Used by Day Details > Reflection > Guide Reflection. If empty, GOOGLE_API_KEY is used.")
-                        .font(.footnote)
-                        .foregroundStyle(.secondary)
                 }
 
                 Section("Data") {
@@ -1016,10 +1004,10 @@ private struct DayEntryEditorView: View {
     let title: String
     let showsCloseButton: Bool
 
-    @AppStorage("geminiApiKey") private var geminiAPIKey = ""
-    @AppStorage("geminiModel") private var geminiModel = "gemini-2.5-flash"
-
     @State private var qualityScore = 5.0
+    @State private var moodScore = 5.0
+    @State private var energyScore = 5.0
+    @State private var progressScore = 5.0
     @State private var mood = "Good"
     @State private var activities = ""
     @State private var morningPlan = ""
@@ -1037,9 +1025,6 @@ private struct DayEntryEditorView: View {
     #if os(iOS)
     @StateObject private var morningVoiceEntry = VoiceEntryController()
     @StateObject private var eveningVoiceEntry = VoiceEntryController()
-    @State private var isPolishingEveningReflection = false
-    @State private var eveningReflectionPolishError: String?
-    @State private var shouldPolishEveningReflectionOnStop = false
     #endif
 
     private let moods = ["Great", "Good", "Okay", "Low", "Exhausted"]
@@ -1134,8 +1119,23 @@ private struct DayEntryEditorView: View {
                         GroupBox("Evening Reflection") {
                             VStack(alignment: .leading, spacing: 12) {
                                 VStack(alignment: .leading) {
-                                    Text("Quality: \(Int(qualityScore))/10")
+                                    Text("Overall Day Score: \(Int(qualityScore))/10")
                                     Slider(value: $qualityScore, in: 1...10, step: 1)
+                                }
+
+                                VStack(alignment: .leading) {
+                                    Text("Mood Score: \(Int(moodScore))/10")
+                                    Slider(value: $moodScore, in: 1...10, step: 1)
+                                }
+
+                                VStack(alignment: .leading) {
+                                    Text("Energy Score: \(Int(energyScore))/10")
+                                    Slider(value: $energyScore, in: 1...10, step: 1)
+                                }
+
+                                VStack(alignment: .leading) {
+                                    Text("Progress Score: \(Int(progressScore))/10")
+                                    Slider(value: $progressScore, in: 1...10, step: 1)
                                 }
 
                                 Picker("Mood", selection: $mood) {
@@ -1155,7 +1155,7 @@ private struct DayEntryEditorView: View {
                                         if isGeneratingReflectionGuide {
                                             ProgressView()
                                         } else {
-                                            Label("AI Guided Self-reflection", systemImage: "sparkles")
+                                            Label("Reflection Template", systemImage: "sparkles")
                                         }
                                     }
                                     .buttonStyle(.borderedProminent)
@@ -1198,17 +1198,9 @@ private struct DayEntryEditorView: View {
                                         )
                                     }
                                     .buttonStyle(.bordered)
-                                    .disabled(isPolishingEveningReflection)
 
                                     if eveningVoiceEntry.isRecording {
                                         Text("Listening...")
-                                            .font(.caption)
-                                            .foregroundStyle(.secondary)
-                                    }
-
-                                    if isPolishingEveningReflection {
-                                        ProgressView()
-                                        Text("Polishing...")
                                             .font(.caption)
                                             .foregroundStyle(.secondary)
                                     }
@@ -1220,11 +1212,6 @@ private struct DayEntryEditorView: View {
                                         .foregroundStyle(.red)
                                 }
 
-                                if let eveningReflectionPolishError {
-                                    Text(eveningReflectionPolishError)
-                                        .font(.caption)
-                                        .foregroundStyle(.red)
-                                }
                                 #endif
 
                                 TextEditor(text: $eveningReflection)
@@ -1348,6 +1335,9 @@ private struct DayEntryEditorView: View {
             .onAppear {
                 if let existingEntry {
                     qualityScore = Double(existingEntry.qualityScore)
+                    moodScore = Double(existingEntry.moodScore)
+                    energyScore = Double(existingEntry.energyScore)
+                    progressScore = Double(existingEntry.progressScore)
                     mood = canonicalMood(existingEntry.mood)
                     activities = existingEntry.activities ?? ""
                     morningPlan = existingEntry.morningPlan ?? ""
@@ -1374,20 +1364,10 @@ private struct DayEntryEditorView: View {
                     persistChanges()
                 }
                 #if os(iOS)
-                shouldPolishEveningReflectionOnStop = false
                 morningVoiceEntry.stopRecording()
                 eveningVoiceEntry.stopRecording()
                 #endif
             }
-            #if os(iOS)
-            .onChange(of: eveningVoiceEntry.isRecording) { _, isRecording in
-                guard !isRecording, shouldPolishEveningReflectionOnStop else { return }
-                shouldPolishEveningReflectionOnStop = false
-                Task {
-                    await polishEveningReflectionFromVoice()
-                }
-            }
-            #endif
             #if os(iOS)
             .fullScreenCover(isPresented: $isShowingMemoryViewer) {
                 MemoryPhotoViewer(photoDatas: photoDatas, startIndex: selectedMemoryIndex)
@@ -1422,6 +1402,9 @@ private struct DayEntryEditorView: View {
         let entry = existingEntry ?? DayEntry(context: viewContext)
         entry.date = Calendar.current.startOfDay(for: date)
         entry.qualityScore = Int16(qualityScore)
+        entry.moodScore = Int16(moodScore)
+        entry.energyScore = Int16(energyScore)
+        entry.progressScore = Int16(progressScore)
         entry.mood = canonicalMood(mood)
         entry.activities = normalizedTagCSV(activities)
         entry.morningPlan = morningPlan
@@ -1447,7 +1430,8 @@ private struct DayEntryEditorView: View {
         let hasPhotos = !photoDatas.isEmpty
         let hasNonDefaultMood = canonicalMood(mood) != "Good"
         let hasNonDefaultScore = Int(qualityScore) != 5
-        return hasText || hasPhotos || hasNonDefaultMood || hasNonDefaultScore
+        let hasNonDefaultSubScores = Int(moodScore) != 5 || Int(energyScore) != 5 || Int(progressScore) != 5
+        return hasText || hasPhotos || hasNonDefaultMood || hasNonDefaultScore || hasNonDefaultSubScores
     }
 
     private func closeEditor() {
@@ -1463,20 +1447,14 @@ private struct DayEntryEditorView: View {
         isGeneratingReflectionGuide = true
         defer { isGeneratingReflectionGuide = false }
 
-        do {
-            reflectionGuide = try await GeminiService.shared.generateReflectionGuide(
-                apiKey: geminiAPIKey,
-                model: geminiModel.trimmingCharacters(in: .whitespacesAndNewlines),
-                date: date,
-                qualityScore: Int(qualityScore),
-                mood: mood,
-                activities: activities,
-                morningPlan: morningPlan,
-                eveningReflection: eveningReflection
-            )
-        } catch {
-            reflectionGuideError = error.localizedDescription
-        }
+        reflectionGuide = localReflectionGuide(
+            date: date,
+            qualityScore: Int(qualityScore),
+            mood: mood,
+            activities: activities,
+            morningPlan: morningPlan,
+            eveningReflection: eveningReflection
+        )
     }
 
     private func insertReflectionGuide() {
@@ -1488,46 +1466,110 @@ private struct DayEntryEditorView: View {
         }
     }
 
+    private func localReflectionGuide(
+        date: Date,
+        qualityScore: Int,
+        mood: String,
+        activities: String,
+        morningPlan: String,
+        eveningReflection: String
+    ) -> String {
+        let tagsList = tags(from: activities)
+        let topTags = Array(tagsList.prefix(2))
+        let tagText = topTags.isEmpty ? "today's priorities" : topTags.joined(separator: " and ")
+        let planText = morningPlan.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            ? "your top priority"
+            : "your morning plan"
+        let hasDraft = !eveningReflection.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        let dateText = date.formatted(date: .abbreviated, time: .omitted)
+
+        let winsPrompts: [String]
+        let gapsPrompts: [String]
+        let gratitudePrompt: String
+        let tomorrowPrompts: [String]
+
+        switch qualityScore {
+        case ...4:
+            winsPrompts = [
+                "What is one small win you still had, even on a hard day?",
+                "Where did you show effort or resilience despite low energy?"
+            ]
+            gapsPrompts = [
+                "What drained you most today, and what early signal did you miss?",
+                "What is one boundary you could set tomorrow to protect your energy?"
+            ]
+            gratitudePrompt = "Name one person, moment, or comfort that helped you get through today."
+            tomorrowPrompts = [
+                "Choose one non-negotiable for tomorrow that would make the day 10% better.",
+                "What can you simplify or remove tomorrow to reduce friction?"
+            ]
+        case 5...7:
+            winsPrompts = [
+                "What worked well today in \(tagText)?",
+                "What action are you proud you followed through on?"
+            ]
+            gapsPrompts = [
+                "What felt unfinished, scattered, or avoidable today?",
+                "What one change would have improved your focus or mood?"
+            ]
+            gratitudePrompt = "What from today are you genuinely grateful for right now?"
+            tomorrowPrompts = [
+                "What is the first meaningful step for \(planText) tomorrow?",
+                "What is one distraction you will intentionally avoid tomorrow?"
+            ]
+        default:
+            winsPrompts = [
+                "Which part of today gave you the most momentum or joy?",
+                "What did you do today that you want to repeat this week?"
+            ]
+            gapsPrompts = [
+                "What small improvement could make a good day even more aligned?",
+                "Where can you conserve energy without losing impact tomorrow?"
+            ]
+            gratitudePrompt = "What are you most thankful for from this strong day?"
+            tomorrowPrompts = [
+                "How will you carry today's momentum into your first hour tomorrow?",
+                "What one habit will help you protect this progress?"
+            ]
+        }
+
+        let draftNudge = hasDraft
+            ? "Use your current draft and answer these prompts concretely."
+            : "Answer these prompts to reflect on your day."
+
+        return """
+        \(dateText) Reflection Guide (\(qualityScore)/10, \(canonicalMood(mood)))
+        \(draftNudge)
+
+        1) Wins:
+        - \(winsPrompts[0])
+        - \(winsPrompts[1])
+
+        2) Gaps:
+        - \(gapsPrompts[0])
+        - \(gapsPrompts[1])
+
+        3) Gratitude:
+        - \(gratitudePrompt)
+
+        4) Tomorrow:
+        - \(tomorrowPrompts[0])
+        - \(tomorrowPrompts[1])
+        """
+    }
+
     #if os(iOS)
     private func handleEveningVoiceEntryTap() {
-        eveningReflectionPolishError = nil
-
         if eveningVoiceEntry.isRecording {
             eveningVoiceEntry.stopRecording()
             return
         }
 
-        shouldPolishEveningReflectionOnStop = true
         eveningVoiceEntry.toggle(for: eveningReflection) { updatedText in
             eveningReflection = updatedText
         }
     }
 
-    @MainActor
-    private func polishEveningReflectionFromVoice() async {
-        let transcript = eveningReflection.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !transcript.isEmpty else { return }
-
-        eveningReflectionPolishError = nil
-        isPolishingEveningReflection = true
-        defer { isPolishingEveningReflection = false }
-
-        do {
-            let polished = try await GeminiService.shared.polishReflectionTranscript(
-                apiKey: geminiAPIKey,
-                model: geminiModel.trimmingCharacters(in: .whitespacesAndNewlines),
-                date: date,
-                qualityScore: Int(qualityScore),
-                mood: mood,
-                activities: activities,
-                morningPlan: morningPlan,
-                rawReflection: transcript
-            )
-            eveningReflection = polished
-        } catch {
-            eveningReflectionPolishError = "Could not polish reflection: \(error.localizedDescription)"
-        }
-    }
     #endif
 
     #if os(macOS)
@@ -1760,11 +1802,10 @@ private final class VoiceEntryController: NSObject, ObservableObject {
 
     func stopRecording(suppressCancellationError: Bool = true) {
         self.suppressCancellationError = suppressCancellationError
-        let finalText = composedText(applyPunctuation: true)
+        let finalText = finalizedTranscriptForStop(composedText())
         if !finalText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             onTextUpdate?(finalText)
         }
-        onTextUpdate = nil
         if audioEngine.isRunning {
             audioEngine.stop()
         }
@@ -1804,7 +1845,9 @@ private final class VoiceEntryController: NSObject, ObservableObject {
     }
 
     private func beginRecognition() throws {
+        let preservedCallback = onTextUpdate
         stopRecording(suppressCancellationError: true)
+        onTextUpdate = preservedCallback
 
         let audioSession = AVAudioSession.sharedInstance()
         try audioSession.setCategory(.record, mode: .measurement, options: [.duckOthers])
@@ -1812,6 +1855,9 @@ private final class VoiceEntryController: NSObject, ObservableObject {
 
         let request = SFSpeechAudioBufferRecognitionRequest()
         request.shouldReportPartialResults = true
+        if #available(iOS 16.0, *) {
+            request.addsPunctuation = true
+        }
         recognitionRequest = request
 
         guard let speechRecognizer else {
@@ -1840,7 +1886,7 @@ private final class VoiceEntryController: NSObject, ObservableObject {
                         .trimmingCharacters(in: .whitespacesAndNewlines)
                     if !candidate.isEmpty {
                         self.latestTranscript = candidate
-                        self.onTextUpdate?(self.composedText(applyPunctuation: false))
+                        self.onTextUpdate?(self.composedText())
                     }
                     if result.isFinal {
                         self.stopRecording(suppressCancellationError: true)
@@ -1877,41 +1923,33 @@ private final class VoiceEntryController: NSObject, ObservableObject {
         return false
     }
 
-    private func composedText(applyPunctuation: Bool) -> String {
+    private func composedText() -> String {
         let spoken = latestTranscript.trimmingCharacters(in: .whitespacesAndNewlines)
-        let mergedText: String
         if baseText.isEmpty {
-            mergedText = spoken
-        } else if spoken.isEmpty {
-            mergedText = baseText
-        } else {
-            mergedText = "\(baseText)\n\(spoken)"
+            return spoken
         }
-
-        if applyPunctuation {
-            return punctuateDictationText(mergedText)
+        if spoken.isEmpty {
+            return baseText
         }
-        return mergedText
+        return "\(baseText)\n\(spoken)"
     }
 
-    private func punctuateDictationText(_ text: String) -> String {
+    private func finalizedTranscriptForStop(_ text: String) -> String {
         let lines = text
             .components(separatedBy: .newlines)
             .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
             .filter { !$0.isEmpty }
 
-        let punctuated = lines.map { line in
-            var updated = line
-            if let first = updated.first {
-                updated.replaceSubrange(updated.startIndex...updated.startIndex, with: String(first).uppercased())
+        let updated = lines.map { line in
+            guard let last = line.last else { return line }
+            if [".", "!", "?"].contains(last) {
+                return line
             }
-            if let last = updated.last, ![".", "!", "?"].contains(last) {
-                updated += "."
-            }
-            return updated
+            let wordCount = line.split(whereSeparator: \.isWhitespace).count
+            return wordCount >= 3 ? "\(line)." : line
         }
 
-        return punctuated.joined(separator: "\n")
+        return updated.joined(separator: "\n")
     }
 
     private func requestPermissions(completion: @escaping (Bool, String?) -> Void) {
@@ -1940,8 +1978,10 @@ private final class VoiceEntryController: NSObject, ObservableObject {
 private struct TagOrganizerView: View {
     @Binding var activities: String
     @AppStorage("customQuickTagGroupsJSON") private var customQuickTagGroupsJSON = "{}"
+    @AppStorage("hiddenDefaultQuickTagGroupsJSON") private var hiddenDefaultQuickTagGroupsJSON = "{}"
     @State private var customTag = ""
     @State private var selectedCustomTagCategory = "Growth"
+    @State private var isEditingCustomTags = false
 
     private var selectedTags: Set<String> {
         Set(tags(from: activities).map { $0.lowercased() })
@@ -1951,14 +1991,21 @@ private struct TagOrganizerView: View {
         decodeCustomQuickTagGroups(from: customQuickTagGroupsJSON)
     }
 
+    private var hiddenDefaultQuickTagGroups: [String: [String]] {
+        decodeCustomQuickTagGroups(from: hiddenDefaultQuickTagGroupsJSON)
+    }
+
     private var categoryTitles: [String] {
         defaultQuickTagGroups.map(\.title)
     }
 
     private var quickTagGroups: [QuickTagGroup] {
         defaultQuickTagGroups.map { baseGroup in
+            let hiddenDefaultTags = hiddenDefaultQuickTagGroups[baseGroup.title] ?? []
+            let hiddenSet = Set(hiddenDefaultTags.map { $0.lowercased() })
+            let visibleDefaultTags = baseGroup.tags.filter { !hiddenSet.contains($0.lowercased()) }
             let customTags = customQuickTagGroups[baseGroup.title] ?? []
-            let merged = mergeTagsPreservingOrder(primary: baseGroup.tags, secondary: customTags)
+            let merged = mergeTagsPreservingOrder(primary: visibleDefaultTags, secondary: customTags)
             return QuickTagGroup(title: baseGroup.title, tags: merged)
         }
     }
@@ -1990,6 +2037,19 @@ private struct TagOrganizerView: View {
                     }
                     .buttonStyle(.bordered)
                 }
+
+                if isEditingCustomTags {
+                    HStack {
+                        Text("Edit mode: tap x to delete tags, or move tags between categories.")
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                        Spacer()
+                        Button("Done") {
+                            isEditingCustomTags = false
+                        }
+                        .buttonStyle(.bordered)
+                    }
+                }
             }
 
             ForEach(quickTagGroups) { group in
@@ -2001,6 +2061,9 @@ private struct TagOrganizerView: View {
                     LazyVGrid(columns: [GridItem(.adaptive(minimum: 88), spacing: 8)], spacing: 8) {
                         ForEach(group.tags, id: \.self) { tag in
                             Button(tag) {
+                                if isEditingCustomTags {
+                                    return
+                                }
                                 activities = toggleTag(tag, in: activities)
                             }
                             .buttonStyle(.plain)
@@ -2019,13 +2082,51 @@ private struct TagOrganizerView: View {
                                         lineWidth: selectedTags.contains(tag.lowercased()) ? 1.3 : 0.7
                                     )
                             )
+                            .overlay(alignment: .topTrailing) {
+                                if isEditingCustomTags {
+                                    Button(role: .destructive) {
+                                        deleteTagFromCategory(tag, in: group.title)
+                                        activities = removeTag(tag, from: activities)
+                                    } label: {
+                                        Image(systemName: "xmark.circle.fill")
+                                            .font(.caption)
+                                            .foregroundStyle(.white, .red)
+                                    }
+                                    .buttonStyle(.plain)
+                                    .offset(x: 4, y: -4)
+                                }
+                            }
+                            .overlay(alignment: .bottomTrailing) {
+                                if isEditingCustomTags {
+                                    Menu {
+                                        ForEach(categoryTitles.filter { $0 != group.title }, id: \.self) { destination in
+                                            Button("Move to \(destination)") {
+                                                moveTag(tag, from: group.title, to: destination)
+                                            }
+                                        }
+                                    } label: {
+                                        Image(systemName: "arrow.up.arrow.down.circle.fill")
+                                            .font(.caption)
+                                            .foregroundStyle(.secondary)
+                                    }
+                                    .buttonStyle(.plain)
+                                    .offset(x: 4, y: 4)
+                                }
+                            }
+                            .simultaneousGesture(
+                                LongPressGesture(minimumDuration: 0.45).onEnded { _ in
+                                    selectedCustomTagCategory = group.title
+                                    isEditingCustomTags = true
+                                }
+                            )
                         }
                     }
                 }
             }
 
-            TextField("Tags (comma-separated): Work, Exercise, Family", text: $activities)
-                .textInputAutocapitalization(.words)
+            Text("Press and hold any tag to enter edit mode for custom tags.")
+                .font(.footnote)
+                .foregroundStyle(.secondary)
         }
         .onAppear {
             if !categoryTitles.contains(selectedCustomTagCategory), let first = categoryTitles.first {
@@ -2044,6 +2145,62 @@ private struct TagOrganizerView: View {
             groups[category] = tagsForCategory
             customQuickTagGroupsJSON = encodeCustomQuickTagGroups(groups)
         }
+    }
+
+    private func removeCustomQuickTag(_ tag: String, from category: String) {
+        guard !category.isEmpty else { return }
+        var groups = customQuickTagGroups
+        guard var tagsForCategory = groups[category] else { return }
+        tagsForCategory.removeAll { $0.caseInsensitiveCompare(tag) == .orderedSame }
+        if tagsForCategory.isEmpty {
+            groups.removeValue(forKey: category)
+        } else {
+            groups[category] = tagsForCategory
+        }
+        customQuickTagGroupsJSON = encodeCustomQuickTagGroups(groups)
+    }
+
+    private func hideDefaultQuickTag(_ tag: String, in category: String) {
+        guard !category.isEmpty else { return }
+        var groups = hiddenDefaultQuickTagGroups
+        var tagsForCategory = groups[category] ?? []
+        let lowercased = tag.lowercased()
+        if !tagsForCategory.map({ $0.lowercased() }).contains(lowercased) {
+            tagsForCategory.append(tag)
+            groups[category] = tagsForCategory
+            hiddenDefaultQuickTagGroupsJSON = encodeCustomQuickTagGroups(groups)
+        }
+    }
+
+    private func deleteTagFromCategory(_ tag: String, in category: String) {
+        if isCustomQuickTag(tag, in: category) {
+            removeCustomQuickTag(tag, from: category)
+        } else if isDefaultQuickTag(tag, in: category) {
+            hideDefaultQuickTag(tag, in: category)
+        }
+    }
+
+    private func moveTag(_ tag: String, from source: String, to destination: String) {
+        guard !source.isEmpty, !destination.isEmpty, source != destination else { return }
+        if isCustomQuickTag(tag, in: source) {
+            removeCustomQuickTag(tag, from: source)
+            addCustomQuickTag(tag, to: destination)
+            return
+        }
+        if isDefaultQuickTag(tag, in: source) {
+            hideDefaultQuickTag(tag, in: source)
+            addCustomQuickTag(tag, to: destination)
+        }
+    }
+
+    private func isCustomQuickTag(_ tag: String, in category: String) -> Bool {
+        guard let customTags = customQuickTagGroups[category] else { return false }
+        return customTags.contains { $0.caseInsensitiveCompare(tag) == .orderedSame }
+    }
+
+    private func isDefaultQuickTag(_ tag: String, in category: String) -> Bool {
+        guard let baseGroup = defaultQuickTagGroups.first(where: { $0.title == category }) else { return false }
+        return baseGroup.tags.contains { $0.caseInsensitiveCompare(tag) == .orderedSame }
     }
 }
 
@@ -2133,6 +2290,12 @@ private func addTag(_ tag: String, to existing: String) -> String {
     if !current.map({ $0.lowercased() }).contains(tag.lowercased()) {
         current.append(tag)
     }
+    return current.joined(separator: ", ")
+}
+
+private func removeTag(_ tag: String, from existing: String) -> String {
+    var current = tags(from: existing)
+    current.removeAll { $0.caseInsensitiveCompare(tag) == .orderedSame }
     return current.joined(separator: ", ")
 }
 
